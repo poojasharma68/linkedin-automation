@@ -1,0 +1,25 @@
+node_modules/
+
+# Env files (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# LinkedIn browser session / cookies (sensitive)
+cookies/
+browser-profile/
+
+# Runtime output
+logs/
+*.log
+screenshots/
+
+# Build artifacts
+client/dist/
+
+# Deploy
+.vercel/
+
+# OS
+.DS_Store
+Thumbs.db

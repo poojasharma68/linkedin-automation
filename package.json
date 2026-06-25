@@ -1,0 +1,43 @@
+{
+  "name": "linkedin-post-automation",
+  "version": "1.0.0",
+  "description": "Production-ready LinkedIn Post Automation System",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "dev:all": "concurrently -k -n server,client -c blue,green \"node --watch src/server.js\" \"npm --prefix client run dev\"",
+    "build:client": "npm --prefix client install && npm --prefix client run build",
+    "serve": "npm run build:client && node src/server.js",
+    "lint": "node --check src/server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "linkedin",
+    "automation",
+    "puppeteer",
+    "mongodb"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "helmet": "^8.0.0",
+    "mongoose": "^8.12.1",
+    "node-cron": "^3.0.3",
+    "puppeteer": "^24.4.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "sharp": "^0.33.5",
+    "winston": "^3.17.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
+  }
+}
