@@ -28,6 +28,13 @@ const ErrorText = styled.p`
   line-height: 1.4;
 `;
 
+const TitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+`;
+
 const ActionRow = styled.div`
   display: flex;
   gap: 0.5rem;
@@ -56,10 +63,13 @@ const ActionBtn = styled.button`
 `;
 
 function PostsList({ activeCategory, activeProgramme }) {
-  const { data, isLoading, isError, error, isFetching, refetch } = useGetAllPostsQuery(
-    { category: activeCategory, programme: activeProgramme },
-    { pollingInterval: 5000 }
-  );
+  // No polling: the list re-fetches on its own when a post is processed,
+  // retried, or deleted (RTK Query 'Posts' tag invalidation). Use the Refresh
+  // button below for an on-demand reload.
+  const { data, isLoading, isError, error, isFetching, refetch } = useGetAllPostsQuery({
+    category: activeCategory,
+    programme: activeProgramme,
+  });
   const [deletePost, { isLoading: isDeleting }] = useDeletePostMutation();
   const [retryPost, { isLoading: isRetrying }] = useRetryPostMutation();
   const [actionId, setActionId] = useState(null);
@@ -106,7 +116,12 @@ function PostsList({ activeCategory, activeProgramme }) {
 
   return (
     <Card>
-      <CardTitle>Posts {isFetching && !isLoading ? '(updating...)' : ''}</CardTitle>
+      <TitleRow>
+        <CardTitle>Posts {isFetching && !isLoading ? '(updating...)' : ''}</CardTitle>
+        <ActionBtn type="button" onClick={() => refetch()} disabled={isFetching}>
+          {isFetching ? 'Refreshing...' : 'Refresh'}
+        </ActionBtn>
+      </TitleRow>
       <CardSubtitle>
         {activeCategory === 'all' ? 'All categories' : `Category: ${activeCategory}`}
         {' · '}

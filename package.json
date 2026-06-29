@@ -6,8 +6,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "dev:all": "concurrently -k -n server,client -c blue,green \"node --watch src/server.js\" \"npm --prefix client run dev\"",
+    "dev": "concurrently -k -n server,client -c blue,green \"node --watch src/server.js\" \"npm --prefix client run dev\"",
+    "dev:server": "node --watch src/server.js",
     "build:client": "npm --prefix client install && npm --prefix client run build",
     "serve": "npm run build:client && node src/server.js",
     "lint": "node --check src/server.js"
@@ -26,10 +26,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "googleapis": "^144.0.0",
     "helmet": "^8.0.0",
-    "mongoose": "^8.12.1",
-    "node-cron": "^3.0.3",
     "puppeteer": "^24.4.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",

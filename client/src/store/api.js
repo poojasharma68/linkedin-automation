@@ -89,17 +89,6 @@ export const api = createApi({
       }),
       invalidatesTags: ['Categories', 'Posts'],
     }),
-    getPosts: builder.query({
-      query: (arg) => {
-        const { category, programme } = normalizePostsArg(arg);
-        const params = new URLSearchParams();
-        if (category && category !== 'all') params.set('category', category);
-        if (programme && programme !== 'all') params.set('programme', programme);
-        const qs = params.toString();
-        return `/api/posts${qs ? `?${qs}` : ''}`;
-      },
-      providesTags: ['Posts'],
-    }),
     getAllPosts: builder.query({
       query: (arg) => {
         const { category, programme } = normalizePostsArg(arg);
@@ -107,7 +96,7 @@ export const api = createApi({
         if (category && category !== 'all') params.set('category', category);
         if (programme && programme !== 'all') params.set('programme', programme);
         const qs = params.toString();
-        return `/api/linkedin-posts${qs ? `?${qs}` : ''}`;
+        return `/api/process/posts${qs ? `?${qs}` : ''}`;
       },
       providesTags: ['Posts'],
     }),
@@ -154,7 +143,6 @@ export const {
   useCreateCategoryMutation,
   useUpdateCategoryMutation,
   useDeleteCategoryMutation,
-  useGetPostsQuery,
   useGetAllPostsQuery,
   useProcessPostsMutation,
   useRetryFailedPostsMutation,

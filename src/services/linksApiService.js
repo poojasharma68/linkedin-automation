@@ -47,11 +47,17 @@ class LinksApiService {
     }
   }
 
-  // Step 1 — POST the screenshot; the API stores it on the CDN.
-  async #postImage(buffer, filename, contentType) {
+  // Step 1 — POST the screenshot plus its metadata; the API stores the file on
+  // the CDN and persists a link record (category, programName, linkedinUrl...).
+  async #postImage(buffer, filename, contentType, meta = {}) {
     const form = new FormData();
     // The API accepts one or many files under the `images` field.
     form.append('images', new Blob([buffer], { type: contentType }), filename);
+
+    // Metadata stored alongside the file so it can be read back via GET /links.
+    for (const [field, value] of Object.entries(meta)) {
+      if (value != null && value !== '') form.append(field, String(value));
+    }
 
     const payload = await this.#request(
       this.fromImageUrl,
@@ -84,10 +90,15 @@ class LinksApiService {
     return links.find((link) => link.fileId === fileId)?.url || null;
   }
 
-  async uploadImage(buffer, category, contentType = 'image/png', extension = 'png') {
+  async uploadImage(buffer, { category, programName, linkedinUrl, source, contentType = 'image/png', extension = 'png' } = {}) {
     const filename = this.#buildFilename(category, extension);
 
-    const uploaded = await this.#postImage(buffer, filename, contentType);
+    const uploaded = await this.#postImage(buffer, filename, contentType, {
+      category,
+      programName,
+      linkedinUrl,
+      source,
+    });
 
     // Prefer the url from the links list; fall back to the upload response in
     // case the list hasn't caught up yet.
