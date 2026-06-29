@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "description": "Production-ready LinkedIn Post Automation System",
   "type": "module",
-  "main": "src/server.js",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "concurrently -k -n server,client -c blue,green \"node --watch src/server.js\" \"npm --prefix client run dev\"",
-    "dev:server": "node --watch src/server.js",
+    "start": "node backend/server.js",
+    "dev": "concurrently -k -n server,client -c blue,green \"node --watch backend/server.js\" \"npm --prefix client run dev\"",
+    "dev:server": "node --watch backend/server.js",
     "build:client": "npm --prefix client install && npm --prefix client run build",
-    "serve": "npm run build:client && node src/server.js",
-    "lint": "node --check src/server.js"
+    "serve": "npm run build:client && node backend/server.js",
+    "lint": "node --check backend/server.js"
   },
   "engines": {
     "node": ">=18.0.0"

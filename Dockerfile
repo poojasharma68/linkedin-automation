@@ -38,4 +38,4 @@ RUN npm --prefix client run build
 # Persist the LinkedIn browser profile across deploys (mount a Railway volume here)
 VOLUME ["/app/browser-profile"]
 
-CMD ["node", "src/server.js"]
+CMD ["node", "backend/server.js"]

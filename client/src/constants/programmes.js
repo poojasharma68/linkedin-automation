@@ -8,8 +8,6 @@ export const PROGRAMMES = [
   { id: 'bharat', label: 'PGP Bharat' },
 ];
 
-export const ADDABLE_PROGRAMMES = PROGRAMMES.filter((p) => p.id !== ALL_PROGRAMMES);
-
 export const DEFAULT_PROGRAMME = ALL_PROGRAMMES;
 
 export function getProgrammeLabel(id) {

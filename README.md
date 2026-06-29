@@ -92,9 +92,19 @@ cd client && npm install && npm run dev   # Admin UI on :5173
 | `PUPPETEER_HEADLESS` | `true` / `false` |
 | `PUPPETEER_TIMEOUT_MS` | Screenshot timeout in ms |
 | `LINKEDIN_BROWSER_PROFILE_PATH` | Chrome profile holding the LinkedIn session |
+| `CATEGORIES_FILE` | JSON file the editable category list is stored in |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin login |
 | `ADMIN_JWT_SECRET` | Admin token signing secret |
 
 ## Categories
 
-`tech` · `marketing` · `business` · `design` · `career`
+Managed from the admin UI (create / edit / delete) and persisted to
+`CATEGORIES_FILE`. Seeded on first run with: `tech` · `marketing` · `business`
+· `design` · `career`.
+
+```http
+GET    /api/categories            # public
+POST   /api/categories            # admin  { name, color }
+PATCH  /api/categories/:id        # admin  { name?, color? }
+DELETE /api/categories/:id        # admin
+```

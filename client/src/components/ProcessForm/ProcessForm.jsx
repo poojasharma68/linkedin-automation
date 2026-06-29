@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
   useProcessPostsMutation,
-  useRetryFailedPostsMutation,
   useGetLinkedInSessionQuery,
   useStartLinkedInLoginMutation,
 } from '../../store/api';
@@ -52,29 +51,22 @@ function parseUrls(text) {
 }
 
 function buildResultMessage(data) {
-  const { queue, summary } = data || {};
-  const queued = queue?.queued?.length ?? 0;
-  const skipped = queue?.skipped?.length ?? 0;
-  const message = summary?.message;
+  const { total = 0, completed = 0, failed = 0 } = data?.summary || {};
 
-  if (skipped > 0 && queued === 0) {
-    const detail = queue?.skipped?.[0];
-    const extra = detail ? ` (${detail.reason})` : '';
+  if (total === 0) {
+    return { type: 'error', text: 'No URLs were processed. Check your input.' };
+  }
+
+  if (completed === 0) {
     return {
       type: 'error',
-      text: `${skipped} URL(s) skipped${extra}. Delete the old post to add it again.`,
+      text: `All ${total} post(s) failed. Check the URLs and your LinkedIn session.`,
     };
   }
 
-  if (queued === 0 && skipped === 0) {
-    return { type: 'error', text: 'No URLs were queued. Check your input.' };
-  }
-
   return {
-    type: 'success',
-    text:
-      message ||
-      `${queued} post(s) queued. Watch the list below — status updates every few seconds.`,
+    type: completed === total ? 'success' : 'error',
+    text: `${completed} of ${total} post(s) processed${failed ? `, ${failed} failed` : ''}.`,
   };
 }
 
@@ -88,7 +80,6 @@ function ProcessForm({ category, categoryName, programme, programmeName, onProce
     pollingInterval: 15000,
   });
   const [processPosts, { isLoading }] = useProcessPostsMutation();
-  const [retryFailed, { isLoading: isRetrying }] = useRetryFailedPostsMutation();
   const [startLogin, { isLoading: isConnecting }] = useStartLinkedInLoginMutation();
 
   const loggedIn = sessionData?.data?.loggedIn === true;
@@ -155,43 +146,10 @@ function ProcessForm({ category, categoryName, programme, programmeName, onProce
       const result = await processPosts({ category, programme, urls }).unwrap();
       await refetchSession();
       setMessage(buildResultMessage(result.data));
-      if (result.data?.summary?.queued > 0) setUrls('');
+      if (result.data?.summary?.completed > 0) setUrls('');
       onProcessed?.();
     } catch (err) {
       setMessage({ type: 'error', text: getApiErrorMessage(err, 'Processing failed') });
-    }
-  };
-
-  const handleRetryFailed = async () => {
-    setMessage(null);
-
-    if (!loggedIn) {
-      setMessage({
-        type: 'success',
-        text: 'Not logged in — a Chrome window will open for LinkedIn login first.',
-      });
-    }
-
-    try {
-      const result = await retryFailed({
-        category,
-        ...(hasProgramme ? { programme } : {}),
-      }).unwrap();
-      await refetchSession();
-      const { queued = 0, message: retryMessage } = result.data || {};
-
-      if (queued === 0 && !retryMessage) {
-        setMessage({ type: 'error', text: 'No failed posts to retry in this category.' });
-        return;
-      }
-
-      setMessage({
-        type: 'success',
-        text: retryMessage || `${queued} post(s) queued for retry. Watch the list for updates.`,
-      });
-      onProcessed?.();
-    } catch (err) {
-      setMessage({ type: 'error', text: getApiErrorMessage(err, 'Retry failed') });
     }
   };
 
@@ -234,20 +192,13 @@ function ProcessForm({ category, categoryName, programme, programmeName, onProce
           <UrlCount>{urlList.length} URL{urlList.length !== 1 ? 's' : ''} detected</UrlCount>
         </FormGroup>
 
-        <FormGroup style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <FormGroup>
           <PrimaryButton
             type="submit"
             disabled={isLoading || isConnecting || !category || category === 'all' || !hasProgramme}
           >
             {isLoading ? 'Processing...' : 'Process Posts'}
           </PrimaryButton>
-          <SecondaryButton
-            type="button"
-            onClick={handleRetryFailed}
-            disabled={isRetrying || isConnecting || !category || category === 'all'}
-          >
-            {isRetrying ? 'Retrying...' : 'Retry Failed'}
-          </SecondaryButton>
         </FormGroup>
       </form>
     </Card>

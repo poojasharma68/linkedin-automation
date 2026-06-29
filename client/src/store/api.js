@@ -108,28 +108,6 @@ export const api = createApi({
       }),
       invalidatesTags: ['Posts'],
     }),
-    retryFailedPosts: builder.mutation({
-      query: (body) => ({
-        url: '/api/process/retry-failed',
-        method: 'POST',
-        body,
-      }),
-      invalidatesTags: ['Posts'],
-    }),
-    retryPost: builder.mutation({
-      query: (id) => ({
-        url: `/api/linkedin-posts/${id}/retry`,
-        method: 'POST',
-      }),
-      invalidatesTags: ['Posts'],
-    }),
-    deletePost: builder.mutation({
-      query: (id) => ({
-        url: `/api/linkedin-posts/${id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: ['Posts'],
-    }),
   }),
 });
 
@@ -145,9 +123,6 @@ export const {
   useDeleteCategoryMutation,
   useGetAllPostsQuery,
   useProcessPostsMutation,
-  useRetryFailedPostsMutation,
-  useRetryPostMutation,
-  useDeletePostMutation,
 } = api;
 
 export default api;

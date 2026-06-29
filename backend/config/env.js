@@ -20,6 +20,9 @@ const envSchema = z.object({
   PUPPETEER_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   LINKEDIN_BROWSER_PROFILE_PATH: z.string().min(1).default('./browser-profile/linkedin'),
 
+  // Where the editable category list is persisted (JSON file on disk).
+  CATEGORIES_FILE: z.string().min(1).default('./data/categories.json'),
+
   ADMIN_USERNAME: z.string().min(1).default('admin'),
   ADMIN_PASSWORD: z.string().min(1).default('admin123'),
   ADMIN_JWT_SECRET: z.string().min(16).default('dev-admin-jwt-secret-change-me'),

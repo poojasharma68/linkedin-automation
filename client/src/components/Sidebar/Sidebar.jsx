@@ -92,7 +92,7 @@ function Sidebar({ activeView, onViewChange }) {
               $active={activeView === category.slug}
               onClick={() => onViewChange(category.slug)}
             >
-              <CategoryDot $color={getCategoryColor(category.slug, category.color)} />
+              <CategoryDot $color={getCategoryColor(category.color)} />
               <span className="label">{category.name}</span>
             </CategoryTabFlex>
             <SidebarIconButton

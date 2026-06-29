@@ -5,6 +5,7 @@ browser-profile
 cookies
 screenshots
 logs
+data
 *.log
 .git
 .gitignore

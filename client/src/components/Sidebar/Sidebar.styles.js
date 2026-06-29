@@ -162,6 +162,6 @@ export const ManageButton = styled.button`
   }
 `;
 
-export function getCategoryColor(slug, color) {
+export function getCategoryColor(color) {
   return color || '#0a66c2';
 }

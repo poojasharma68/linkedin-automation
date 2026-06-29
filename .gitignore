@@ -13,6 +13,7 @@ browser-profile/
 logs/
 *.log
 screenshots/
+data/
 
 # Build artifacts
 client/dist/
