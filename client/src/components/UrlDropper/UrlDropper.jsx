@@ -1,11 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   useProcessPostsMutation,
   useGetLinkedInSessionQuery,
   useStartLinkedInLoginMutation,
 } from '../../store/api';
 import getApiErrorMessage from '../../utils/getApiError';
-import { ALL_PROGRAMMES } from '../../constants/programmes';
 import {
   Card,
   CardTitle,
@@ -15,44 +14,26 @@ import {
   PrimaryButton,
   SecondaryButton,
   Alert,
+} from '../ui/styled';
+import {
+  SessionRow,
+  SessionText,
   TextArea,
+  FooterRow,
   UrlCount,
-  SelectedCategory,
-} from './ProcessForm.styles';
-import styled from 'styled-components';
-import theme from '../../styles/theme';
+  Tally,
+} from './UrlDropper.styles';
 
 const PLACEHOLDER_PATTERNS = [/user_activity-123/i, /urn:li:activity:456/i];
-
-const SessionRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  border-radius: ${theme.radius.sm};
-  background: ${({ $loggedIn }) => ($loggedIn ? theme.colors.successBg : theme.colors.warningBg)};
-  border: 1px solid ${({ $loggedIn }) => ($loggedIn ? theme.colors.success : theme.colors.warning)};
-`;
-
-const SessionText = styled.p`
-  font-size: 0.875rem;
-  color: ${theme.colors.text};
-  margin: 0;
-`;
 
 function parseUrls(text) {
   return text
     .split(/[\n,]+/)
-    .map((u) => u.trim())
+    .map((url) => url.trim())
     .filter(Boolean);
 }
 
-function buildResultMessage(data) {
-  const { total = 0, completed = 0, failed = 0 } = data?.summary || {};
-
+function buildResultMessage({ total = 0, completed = 0, failed = 0 } = {}) {
   if (total === 0) {
     return { type: 'error', text: 'No URLs were processed. Check your input.' };
   }
@@ -66,15 +47,13 @@ function buildResultMessage(data) {
 
   return {
     type: completed === total ? 'success' : 'error',
-    text: `${completed} of ${total} post(s) processed${failed ? `, ${failed} failed` : ''}.`,
+    text: `${completed} of ${total} post(s) captured${failed ? `, ${failed} failed` : ''}.`,
   };
 }
 
-function ProcessForm({ category, categoryName, programme, programmeName, onProcessed }) {
+function UrlDropper({ categories, programmes, onResults }) {
   const [urls, setUrls] = useState('');
   const [message, setMessage] = useState(null);
-
-  const hasProgramme = !!programme && programme !== ALL_PROGRAMMES;
 
   const { data: sessionData, refetch: refetchSession } = useGetLinkedInSessionQuery(undefined, {
     pollingInterval: 15000,
@@ -84,9 +63,9 @@ function ProcessForm({ category, categoryName, programme, programmeName, onProce
 
   const loggedIn = sessionData?.data?.loggedIn === true;
   const urlList = useMemo(() => parseUrls(urls), [urls]);
+  const isReady = urlList.length > 0 && categories.length > 0 && programmes.length > 0;
 
   const handleConnectLinkedIn = async () => {
-    setMessage(null);
     setMessage({
       type: 'success',
       text: 'A Chrome window will open. Log in to LinkedIn — your session will be saved automatically.',
@@ -95,31 +74,29 @@ function ProcessForm({ category, categoryName, programme, programmeName, onProce
     try {
       await startLogin().unwrap();
       await refetchSession();
-      setMessage({ type: 'success', text: 'LinkedIn connected. You can now process posts.' });
+      setMessage({ type: 'success', text: 'LinkedIn connected. You can now capture posts.' });
     } catch (err) {
       setMessage({ type: 'error', text: getApiErrorMessage(err, 'LinkedIn login failed') });
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setMessage(null);
+    onResults([]);
 
-    if (category === 'all' || !category) {
-      setMessage({ type: 'error', text: 'Select a category from the sidebar first' });
+    if (categories.length === 0) {
+      setMessage({ type: 'error', text: 'Select at least one category above.' });
       return;
     }
 
-    if (!hasProgramme) {
-      setMessage({
-        type: 'error',
-        text: 'Select a specific programme tab (UG, PG, Executive, or PGP Bharat) before adding posts.',
-      });
+    if (programmes.length === 0) {
+      setMessage({ type: 'error', text: 'Select at least one programme above.' });
       return;
     }
 
     if (urlList.length === 0) {
-      setMessage({ type: 'error', text: 'Paste at least one real LinkedIn post URL' });
+      setMessage({ type: 'error', text: 'Paste at least one real LinkedIn post URL.' });
       return;
     }
 
@@ -130,7 +107,7 @@ function ProcessForm({ category, categoryName, programme, programmeName, onProce
     if (looksLikePlaceholder) {
       setMessage({
         type: 'error',
-        text: 'You pasted the example placeholder URLs. Replace them with a real LinkedIn post link from your browser.',
+        text: 'You pasted the example placeholder URLs. Replace them with real LinkedIn post links.',
       });
       return;
     }
@@ -138,27 +115,28 @@ function ProcessForm({ category, categoryName, programme, programmeName, onProce
     if (!loggedIn) {
       setMessage({
         type: 'success',
-        text: 'Not logged in yet — a Chrome window will open for LinkedIn login, then processing will start.',
+        text: 'Not logged in yet — a Chrome window will open for LinkedIn login, then capturing will start.',
       });
     }
 
     try {
-      const result = await processPosts({ category, programme, urls }).unwrap();
+      const result = await processPosts({ urls, categories, programmes }).unwrap();
       await refetchSession();
-      setMessage(buildResultMessage(result.data));
+      setMessage(buildResultMessage(result.data?.summary));
+      onResults(result.data?.results || []);
       if (result.data?.summary?.completed > 0) setUrls('');
-      onProcessed?.();
     } catch (err) {
       setMessage({ type: 'error', text: getApiErrorMessage(err, 'Processing failed') });
+      onResults([]);
     }
   };
 
   return (
     <Card>
-      <CardTitle>Process LinkedIn Posts</CardTitle>
+      <CardTitle>Drop LinkedIn URLs</CardTitle>
       <CardSubtitle>
-        Paste LinkedIn post URLs. On first run, a Chrome window opens for you to log in — the session
-        is saved in a browser profile (no manual cookies needed).
+        One URL per line. Each post is screenshotted once and uploaded to the CDN — the selected
+        categories and programmes above are applied to every URL in this batch.
       </CardSubtitle>
 
       <SessionRow $loggedIn={loggedIn}>
@@ -172,38 +150,38 @@ function ProcessForm({ category, categoryName, programme, programmeName, onProce
         )}
       </SessionRow>
 
-      <SelectedCategory>
-        Category: <strong>{categoryName || category}</strong>
-        {' · '}
-        Programme: <strong>{hasProgramme ? programmeName || programme : 'Select a programme'}</strong>
-      </SelectedCategory>
-
       {message && <Alert $variant={message.type}>{message.text}</Alert>}
 
       <form onSubmit={handleSubmit}>
-        <FormGroup>
+        <FormGroup style={{ marginBottom: 0 }}>
           <Label htmlFor="urls">LinkedIn Post URLs</Label>
           <TextArea
             id="urls"
-            placeholder="Paste your real LinkedIn post URL here..."
+            placeholder={'https://www.linkedin.com/posts/...\nhttps://www.linkedin.com/posts/...'}
             value={urls}
-            onChange={(e) => setUrls(e.target.value)}
+            onChange={(event) => setUrls(event.target.value)}
           />
-          <UrlCount>{urlList.length} URL{urlList.length !== 1 ? 's' : ''} detected</UrlCount>
         </FormGroup>
 
-        <FormGroup>
-          <PrimaryButton
-            type="submit"
-            disabled={isLoading || isConnecting || !category || category === 'all' || !hasProgramme}
-          >
-            {isLoading ? 'Processing...' : 'Process Posts'}
+        <FooterRow>
+          <UrlCount>
+            <Tally $ready={urlList.length > 0}>{urlList.length}</Tally> URL
+            {urlList.length !== 1 ? 's' : ''}
+            {' · '}
+            <Tally $ready={categories.length > 0}>{categories.length}</Tally> categor
+            {categories.length !== 1 ? 'ies' : 'y'}
+            {' · '}
+            <Tally $ready={programmes.length > 0}>{programmes.length}</Tally> programme
+            {programmes.length !== 1 ? 's' : ''}
+          </UrlCount>
+
+          <PrimaryButton type="submit" disabled={isLoading || isConnecting || !isReady}>
+            {isLoading ? 'Capturing...' : 'Capture & Build JSON'}
           </PrimaryButton>
-        </FormGroup>
+        </FooterRow>
       </form>
     </Card>
   );
 }
 
-export default ProcessForm;
-
+export default UrlDropper;

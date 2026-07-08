@@ -7,94 +7,78 @@ import delay from '../utils/delay.js';
 import linkedinBrowserService from './linkedinBrowserService.js';
 
 const FEED_URL = 'https://www.linkedin.com/feed/';
-const POST_READY_TIMEOUT_MS = 2500;
-const NAVIGATION_TIMEOUT_MS = 8000;
+const NAVIGATION_TIMEOUT_MS = 20000;
+const POST_READY_TIMEOUT_MS = 15000;
+/**
+ * LinkedIn hydrates the post detail page and then re-mounts the post card once,
+ * roughly 350ms after domcontentloaded. The pre-mount node gets detached, so a
+ * card is only safe to screenshot after its identity has held still this long.
+ */
+const CARD_STABLE_MS = 400;
 const MEDIA_LOAD_TIMEOUT_MS = 8000;
 const MIN_CARD_WIDTH = 240;
 const MIN_CARD_HEIGHT = 60;
 const VIEWPORT_WIDTH = 1280;
 const VIEWPORT_HEIGHT_DEFAULT = 2400;
+const MAX_VIEWPORT_HEIGHT = 16000;
 const DEVICE_SCALE_FACTOR = 2;
 /** LinkedIn feed post column width at 1280px viewport — kept constant for every capture */
 const FIXED_CAPTURE_WIDTH = 552;
 const OUTPUT_PNG_WIDTH = FIXED_CAPTURE_WIDTH * DEVICE_SCALE_FACTOR;
 
-const POST_CARD_QUERY =
-  '.feed-shared-update-v2, article[data-urn], [data-view-name="feed-update"], .main-feed-activity-card, main article';
-
-const POST_LOAD_SELECTORS = [
-  'article[data-urn]',
-  '.feed-shared-update-v2',
-  '.main-feed-activity-card',
-  'div[data-view-name="feed-update"]',
-  '.update-components-actor',
-  '.update-components-text',
-  '.feed-shared-inline-show-more-text',
-  '.feed-shared-update-v2__description',
-  '[data-urn*="activity"]',
-  '[data-urn*="ugcPost"]',
-  '.feed-shared-actor',
+/**
+ * LinkedIn ships build-hashed class names (`_75228706`, `dec34939`, ...), so no
+ * `.feed-shared-*` / `[class*="update-components-*"]` selector matches any more.
+ * Everything below anchors on the hooks that survive a rebuild: ARIA labels,
+ * `data-testid`, and the visually-hidden "Feed post" heading. The legacy
+ * selectors are kept as a fallback for sessions still served the old DOM.
+ */
+const SOCIAL_REACTIONS_SELECTORS = [
+  '[data-testid^="ReactionFacepileCollection"]',
+  'button[aria-label*="reaction" i]',
+  'button[aria-label*="like" i]',
+  'button[aria-label*="repost" i]',
+  // legacy DOM
+  '.social-details-social-counts',
   '.social-details-social-activity',
   '.feed-shared-social-actions',
+  '[class*="social-action-bar"]',
+  '[class*="update-v2-social-activity"]',
+  '.reactions-react-button',
+  '[data-view-name="feed-social-actions"]',
 ];
+const SOCIAL_SELECTOR = SOCIAL_REACTIONS_SELECTORS.join(', ');
+
+/** Legacy-DOM post containers. Matches nothing on the current LinkedIn build. */
+const LEGACY_CARD_QUERY =
+  '.feed-shared-update-v2, article[data-urn], [data-view-name="feed-update"], .main-feed-activity-card, main article';
+
+/**
+ * Comment threads live *outside* the post card on the current DOM, but the card
+ * lookup walks up the ancestor chain — these markers tell it when it has gone
+ * one level too far and swallowed the comment list.
+ */
+const COMMENT_SELECTORS = [
+  '[data-testid*="commentList"]',
+  '[data-testid*="feed-comment"]',
+  '.comments-comment-box',
+  '.comments-comments-list',
+  '.comments-comment-item',
+  '[class*="comments-comment"]',
+  '[class*="comments-entry-point"]',
+];
+const COMMENT_SELECTOR = COMMENT_SELECTORS.join(', ');
 
 const PAGE_CHROME_SELECTORS = [
   'header',
   'nav',
-  '#global-nav',
-  '.global-nav',
-  '.scaffold-layout__aside',
-  '.scaffold-layout__sidebar',
-  '.scaffold-layout__sticky',
-  '.scaffold-layout-toolbar',
-  '.feed-identity-module',
-  '.feed-follows-module',
-  '.feed-right-rail',
-  '.right-rail',
-  '[class*="right-rail"]',
-  '[class*="left-rail"]',
-  'main aside',
-  'aside[aria-label="Sidebar"]',
-  '.pv-top-card',
-  '.profile-background-image',
+  'aside',
   'footer',
-  '.ad-banner-container',
-  '[class*="ad-banner"]',
+  '#global-nav',
   '.msg-overlay-container',
   '.msg-overlay-list-bubble',
   '.artdeco-modal',
   '[data-test-modal]',
-];
-
-const SOCIAL_REACTIONS_SELECTORS = [
-  '.social-details-social-counts',
-  '.social-details-social-activity',
-  '.feed-shared-social-actions',
-  '[class*="social-details-social-counts"]',
-  '[class*="social-details-social-activity"]',
-  '[class*="feed-shared-social-actions"]',
-  '[class*="social-action-bar"]',
-  '[class*="update-v2-social-activity"]',
-  '.reactions-react-button',
-  '[data-view-name="feed-reaction-count"]',
-  '[data-view-name="feed-social-actions"]',
-  'button[aria-label*="Like"]',
-  'button[aria-label*="like"]',
-  'button[aria-label*="React"]',
-  'button[aria-label*="reaction"]',
-  'button[aria-label*="Repost"]',
-];
-
-const COMMENT_SELECTORS = [
-  '.comments-comment-box',
-  '.comments-comments-list',
-  '.comments-comment-item',
-  '.comments-comments-list__comment-item',
-  '[class*="comments-comment"]',
-  '[class*="comment-social-bar"]',
-  '[class*="comments-entry-point"]',
-  '[data-view-name="feed-comment"]',
-  '[data-view-name="feed-comment-box"]',
 ];
 
 class PuppeteerScreenshotService {
@@ -206,59 +190,46 @@ class PuppeteerScreenshotService {
   }
 
   async #diagnosePostCardFailure(page, urnId) {
-    return page.evaluate((id, socialSelectors) => {
-      const main = document.querySelector('main') || document.body;
-      const candidates = [...main.querySelectorAll(
-        '.feed-shared-update-v2, article[data-urn], [data-view-name="feed-update"], article'
-      )];
+    return page.evaluate(
+      (id, socialSelector) => {
+        const main = document.querySelector('main') || document.body;
+        const url = window.location.href;
 
-      const hasUrnNode = id ? !!document.querySelector(`[data-urn*="${id}"]`) : null;
-      const urnInHtml = id
-        ? candidates.some((node) => (node.innerHTML || '').includes(id))
-        : null;
+        return {
+          url,
+          onLogin: url.includes('/login') || url.includes('/authwall'),
+          urnId: id,
+          feedPostHeading: [...main.querySelectorAll('h2')].some(
+            (heading) =>
+              !heading.closest('aside') && (heading.textContent || '').trim() === 'Feed post'
+          ),
+          urnNodePresent: id
+            ? !!document.querySelector(`[data-urn*="${id}"], [data-testid*="${id}"]`)
+            : null,
+          socialNodes: main.querySelectorAll(socialSelector).length,
+          authorLinks: main.querySelectorAll('a[href*="/in/"]').length,
+          bodySnippet: (document.body?.innerText || '').slice(0, 300),
+        };
+      },
+      urnId,
+      SOCIAL_SELECTOR
+    );
+  }
 
-      const socialSelector = socialSelectors.join(', ');
-      const withSocial = candidates.filter((node) => node.querySelector(socialSelector)).length;
+  #buildFailureHint(diagnosis, urnId) {
+    if (diagnosis.onLogin) {
+      return 'LinkedIn session expired. Click Connect LinkedIn in the admin UI and log in again.';
+    }
 
-      const viable = candidates.filter((node) => {
-        const rect = node.getBoundingClientRect();
-        const hasActor = !!node.querySelector(
-          '[class*="update-components-actor"], [class*="feed-shared-actor"], [class*="actor"], a[href*="/in/"]'
-        );
-        const hasText = (node.textContent || '').trim().length > 40;
-        const hasMedia = !!node.querySelector(
-          'img, video, [class*="feed-shared-image"], [class*="update-components-image"]'
-        );
-        return (
-          hasActor &&
-          (hasText || hasMedia) &&
-          rect.width >= 240 &&
-          rect.height >= 60
-        );
-      }).length;
+    if (!diagnosis.feedPostHeading && diagnosis.socialNodes === 0) {
+      return 'The page loaded but no post content was found. Check the URL is a valid public post link.';
+    }
 
-      const url = window.location.href;
-      const onLogin = url.includes('/login') || url.includes('/authwall');
-      const bodyText = (document.body?.innerText || '').slice(0, 500);
+    if (urnId && diagnosis.urnNodePresent === false) {
+      return 'Post page loaded but the post ID from the URL was not found in the page. The post may be private or deleted.';
+    }
 
-      const feedPostHeading = [...main.querySelectorAll('h2')].some(
-        (heading) =>
-          !heading.closest('aside') && (heading.textContent || '').trim() === 'Feed post'
-      );
-
-      return {
-        url,
-        onLogin,
-        urnId: id,
-        hasUrnNode,
-        urnInHtml,
-        feedPostHeading,
-        candidateCount: candidates.length,
-        withSocial,
-        viable,
-        bodySnippet: bodyText,
-      };
-    }, urnId, SOCIAL_REACTIONS_SELECTORS);
+    return 'Post elements were found but did not match the expected layout. LinkedIn may have changed their page structure.';
   }
 
   async #dismissOverlays(page) {
@@ -273,442 +244,200 @@ class PuppeteerScreenshotService {
     });
   }
 
-  async #waitForPostContent(page, urnId) {
+  /**
+   * Resolves the post card and returns a live ElementHandle.
+   *
+   * The card is only returned once the same DOM node has survived
+   * CARD_STABLE_MS — LinkedIn re-mounts it shortly after hydration, and a
+   * detached node cannot be measured or screenshotted.
+   */
+  async #waitForStableCard(page, urnId) {
     const pageIssue = await this.#detectPageIssue(page);
     if (pageIssue) throw new Error(pageIssue);
 
+    await page.evaluate(() => {
+      window.__postCard = null;
+      window.__postCardSince = 0;
+    });
+
     try {
       await page.waitForFunction(
-        (selectors, id, cardQuery, minWidth, minHeight) => {
+        (id, socialSelector, commentSelector, legacyCardQuery, minWidth, minHeight, stableMs) => {
           const main = document.querySelector('main') || document.body;
-          const socialSelector =
-            '.social-details-social-counts, .social-details-social-activity, .feed-shared-social-actions, [data-view-name="feed-social-actions"], [class*="social-action-bar"], button[aria-label*="Like"], button[aria-label*="React"]';
 
-          const feedPostHeading = [...main.querySelectorAll('h2')].some(
-            (heading) =>
-              !heading.closest('aside') && (heading.textContent || '').trim() === 'Feed post'
-          );
-          if (feedPostHeading) return true;
+          const qualifies = (el) => {
+            if (!el || el === main) return false;
+            // Walking too far up swallows the comment thread — reject those.
+            if (el.querySelector(commentSelector)) return false;
+            const rect = el.getBoundingClientRect();
+            return (
+              !!el.querySelector(socialSelector) &&
+              !!el.querySelector('a[href*="/in/"]') &&
+              rect.width >= minWidth &&
+              rect.height >= minHeight
+            );
+          };
 
-          if (id && document.querySelector(`[data-urn*="${id}"]`)) return true;
+          const climbTo = (node, maxDepth) => {
+            let el = node;
+            for (let depth = 0; depth < maxDepth && el && el !== main; depth += 1) {
+              if (el.closest('aside')) return null;
+              if (qualifies(el)) return el;
+              el = el.parentElement;
+            }
+            return null;
+          };
 
-          if (selectors.some((selector) => main.querySelector(selector))) return true;
+          // Legacy DOM: the post container carries the urn directly.
+          const fromLegacyUrn = () => {
+            if (!id) return null;
+            const node = document.querySelector(`[data-urn*="${id}"]`);
+            return node ? climbTo(node, 15) || node : null;
+          };
 
-          const cards = [...main.querySelectorAll(cardQuery)];
-          if (
-            cards.some((card) => {
-              const rect = card.getBoundingClientRect();
-              const hasActor = !!card.querySelector('a[href*="/in/"]');
-              const hasContent = (card.textContent || '').trim().length > 40;
-              return hasActor && hasContent && rect.width >= minWidth && rect.height >= minHeight;
-            })
-          ) {
-            return true;
+          // Current DOM: a visually-hidden <h2>Feed post</h2> labels the card,
+          // and its parent is the card itself.
+          const fromHeading = () => {
+            const heading = [...main.querySelectorAll('h2')].find(
+              (node) =>
+                !node.closest('aside') && (node.textContent || '').trim() === 'Feed post'
+            );
+            return heading ? climbTo(heading.parentElement, 10) : null;
+          };
+
+          const fromLegacyQuery = () => {
+            let best = null;
+            let bestArea = 0;
+            for (const candidate of main.querySelectorAll(legacyCardQuery)) {
+              if (!qualifies(candidate)) continue;
+              const rect = candidate.getBoundingClientRect();
+              const area = rect.width * rect.height;
+              if (area > bestArea) {
+                best = candidate;
+                bestArea = area;
+              }
+            }
+            return best;
+          };
+
+          const fromSocialButtons = () => {
+            const button = [...main.querySelectorAll('button[aria-label]')].find(
+              (node) =>
+                !node.closest('aside') &&
+                /like|react|repost/i.test(node.getAttribute('aria-label') || '')
+            );
+            return button ? climbTo(button, 15) : null;
+          };
+
+          const card = fromLegacyUrn() || fromHeading() || fromLegacyQuery() || fromSocialButtons();
+
+          if (!card) {
+            window.__postCard = null;
+            window.__postCardSince = 0;
+            return false;
           }
 
-          const actor = main.querySelector(
-            '[class*="update-components-actor"], [class*="feed-shared-actor"], .feed-shared-actor__container'
-          );
-          const social = main.querySelector(socialSelector);
+          if (window.__postCard !== card) {
+            window.__postCard = card;
+            window.__postCardSince = performance.now();
+            return false;
+          }
 
-          return !!(actor && social);
+          return card.isConnected && performance.now() - window.__postCardSince >= stableMs;
         },
         { timeout: POST_READY_TIMEOUT_MS, polling: 100 },
-        POST_LOAD_SELECTORS,
         urnId,
-        POST_CARD_QUERY,
+        SOCIAL_SELECTOR,
+        COMMENT_SELECTOR,
+        LEGACY_CARD_QUERY,
         MIN_CARD_WIDTH,
-        MIN_CARD_HEIGHT
+        MIN_CARD_HEIGHT,
+        CARD_STABLE_MS
       );
     } catch {
       const issue = await this.#detectPageIssue(page);
       if (issue) throw new Error(issue);
-      throw new Error(
-        'LinkedIn post did not render in time. Retry once — if it persists, re-connect LinkedIn.'
-      );
+      return null;
     }
+
+    // Hand back the very node the predicate settled on — no re-query, so there
+    // is no window for a re-mount to invalidate it.
+    const handle = await page.evaluateHandle(() => window.__postCard);
+    const card = handle.asElement();
+    if (!card) {
+      await handle.dispose();
+      return null;
+    }
+
+    return card;
   }
 
-  async #findPostCard(page, urnId) {
-    if (urnId) {
-      await page.evaluate((id) => {
-        const node = document.querySelector(`[data-urn*="${id}"]`);
-        node?.scrollIntoView({ block: 'start', behavior: 'instant' });
-      }, urnId);
-    }
-
-    const selector = await page.evaluate(
-      (id, socialSelectors, cardQuery, minWidth, minHeight) => {
-        document.querySelectorAll('[data-screenshot-target]').forEach((node) => {
-          node.removeAttribute('data-screenshot-target');
-        });
-
-        const socialSelector = socialSelectors.join(', ');
-
-        const mark = (el) => {
-          if (!el) return null;
-          el.setAttribute('data-screenshot-target', 'true');
-          return '[data-screenshot-target="true"]';
-        };
-
-        const resolveCard = (node) => {
-          if (!node) return null;
-
-          let card =
-            node.closest('.feed-shared-update-v2') ||
-            node.closest('article[data-urn]') ||
-            node.closest('[data-view-name="feed-update"]') ||
-            node.closest('.main-feed-activity-card') ||
-            node.closest('main article') ||
-            node;
-
-          let current = card;
-          while (current) {
-            if (current.querySelector(socialSelector)) {
-              return current;
-            }
-
-            const parent = current.parentElement?.closest(
-              '.feed-shared-update-v2, article[data-urn], [data-view-name="feed-update"], .main-feed-activity-card, main article'
-            );
-
-            if (!parent || parent === current) break;
-            current = parent;
-          }
-
-          return card;
-        };
-
-        const scoreCandidate = (candidate, requireUrn) => {
-          const rect = candidate.getBoundingClientRect();
-          const hasActor = candidate.querySelector(
-            '[class*="update-components-actor"], [class*="feed-shared-actor"], [class*="actor"], a[href*="/in/"]'
-          );
-          const hasText = (candidate.textContent || '').trim().length > 8;
-          const hasMedia = candidate.querySelector(
-            'img, video, [class*="feed-shared-image"], [class*="update-components-image"]'
-          );
-          const html = candidate.innerHTML || '';
-          const area = rect.width * rect.height;
-
-          if (
-            !hasActor ||
-            (!hasText && !hasMedia) ||
-            rect.width < minWidth ||
-            rect.height < minHeight ||
-            area >= 5000000 ||
-            (requireUrn && id && !html.includes(id))
-          ) {
-            return 0;
-          }
-
-          return area;
-        };
-
-        const findBestCard = (requireUrn) => {
-          const main = document.querySelector('main') || document.body;
-          let best = null;
-          let bestArea = 0;
-
-          const feedUpdates = [...main.querySelectorAll('[data-view-name="feed-update"]')];
-          if (feedUpdates.length === 1) {
-            const single = resolveCard(feedUpdates[0]);
-            if (single && scoreCandidate(feedUpdates[0], requireUrn) > 0) {
-              return single;
-            }
-          }
-
-          for (const candidate of main.querySelectorAll(cardQuery)) {
-            const area = scoreCandidate(candidate, requireUrn);
-            if (area > bestArea) {
-              best = resolveCard(candidate);
-              bestArea = area;
-            }
-          }
-
-          return best;
-        };
-
-        const findByFeedPostHeading = () => {
-          const main = document.querySelector('main') || document.body;
-          const heading = [...main.querySelectorAll('h2')].find(
-            (node) => !node.closest('aside') && (node.textContent || '').trim() === 'Feed post'
-          );
-          if (!heading) return null;
-
-          let el = heading.parentElement;
-          while (el && el !== main) {
-            if (el.closest('aside')) break;
-            const rect = el.getBoundingClientRect();
-            if (
-              el.querySelector(socialSelector) &&
-              el.querySelector('a[href*="/in/"]') &&
-              rect.width >= minWidth &&
-              rect.height >= minHeight
-            ) {
-              return el;
-            }
-            el = el.parentElement;
-          }
-
-          el = heading.parentElement;
-          let fallback = null;
-          let smallestArea = Infinity;
-
-          for (let depth = 0; depth < 8 && el && el !== main; depth += 1) {
-            if (el.closest('aside')) break;
-            const rect = el.getBoundingClientRect();
-            const area = rect.width * rect.height;
-            if (rect.width >= minWidth && rect.height >= minHeight && area < smallestArea) {
-              fallback = el;
-              smallestArea = area;
-            }
-            el = el.parentElement;
-          }
-
-          return fallback;
-        };
-
-        const findBySocialButtons = () => {
-          const main = document.querySelector('main') || document.body;
-          const buttons = [...main.querySelectorAll('button[aria-label]')].filter((btn) => {
-            if (btn.closest('aside')) return false;
-            const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-            return /like|react|repost|comment|send/.test(label);
+  async #hidePageChrome(page, card) {
+    await page.evaluate(
+      (postCard, chromeSelectors) => {
+        chromeSelectors.forEach((selector) => {
+          document.querySelectorAll(selector).forEach((node) => {
+            if (node === postCard || node.contains(postCard) || postCard.contains(node)) return;
+            node.style.setProperty('display', 'none', 'important');
           });
-
-          if (!buttons.length) return null;
-
-          let el = buttons[0];
-          for (let depth = 0; depth < 15 && el && el !== main; depth += 1) {
-            if (el.closest('aside')) break;
-            const rect = el.getBoundingClientRect();
-            const hasAuthor = el.querySelector('a[href*="/in/"]');
-            const hasContent = (el.textContent || '').trim().length > 80;
-
-            if (hasAuthor && hasContent && rect.width >= minWidth && rect.height >= minHeight) {
-              return el;
-            }
-            el = el.parentElement;
-          }
-
-          return null;
-        };
-
-        if (id) {
-          const byUrn = document.querySelector(`[data-urn*="${id}"]`);
-          if (byUrn) return mark(resolveCard(byUrn));
-
-          for (const candidate of document.querySelectorAll(cardQuery)) {
-            if ((candidate.innerHTML || '').includes(id)) {
-              return mark(resolveCard(candidate));
-            }
-          }
-        }
-
-        return mark(
-          findBestCard(!!id) ||
-            findBestCard(false) ||
-            findByFeedPostHeading() ||
-            findBySocialButtons()
-        );
-      },
-      urnId,
-      SOCIAL_REACTIONS_SELECTORS,
-      POST_CARD_QUERY,
-      MIN_CARD_WIDTH,
-      MIN_CARD_HEIGHT
-    );
-
-    if (!selector) return null;
-
-    const element = await page.$(selector);
-    if (!element) return null;
-
-    const valid = await element.evaluate(
-      (el, minWidth, minHeight) => {
-        const rect = el.getBoundingClientRect();
-        return rect.width >= minWidth && rect.height >= minHeight;
-      },
-      MIN_CARD_WIDTH,
-      MIN_CARD_HEIGHT
-    );
-
-    return valid ? element : null;
-  }
-
-  async #hidePageChrome(page) {
-    await page.evaluate((chromeSelectors) => {
-      chromeSelectors.forEach((selector) => {
-        document.querySelectorAll(selector).forEach((node) => {
-          if (node.closest('[data-screenshot-target="true"]')) return;
-          node.style.setProperty('display', 'none', 'important');
         });
-      });
 
-      const postCard = document.querySelector('[data-screenshot-target="true"]');
-      const main = document.querySelector('main');
+        const main = document.querySelector('main');
+        if (!main) return;
 
-      if (postCard && main) {
         main.querySelectorAll(':scope > *').forEach((child) => {
-          if (!child.contains(postCard) && child !== postCard) {
+          if (child !== postCard && !child.contains(postCard)) {
             child.style.setProperty('display', 'none', 'important');
           }
         });
-      }
-    }, PAGE_CHROME_SELECTORS);
+      },
+      card,
+      PAGE_CHROME_SELECTORS
+    );
   }
 
-  async #prepareCardForScreenshot(article) {
-    await article.evaluate(
-      (el, commentSelectors, socialSelectors) => {
-        const card = el;
+  async #prepareCardForScreenshot(card) {
+    await card.evaluate(
+      (el, commentSelector, socialSelector) => {
+        const isInComments = (node) => !!node.closest(commentSelector);
 
-        const isInComments = (node) =>
-          !!node.closest(
-            '.comments-comment-box, .comments-comments-list, .comments-comment-item, [class*="comments-comment"], [data-view-name="feed-comment"]'
-          );
-
-        const findBottommostSocialElement = () => {
-          const socialElements = [];
-          socialSelectors.forEach((selector) => {
-            card.querySelectorAll(selector).forEach((node) => {
-              if (isInComments(node)) return;
-              const rect = node.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                socialElements.push(node);
-              }
-            });
-          });
-
-          if (!socialElements.length) return { bottommost: null, bottom: null };
-
-          let bottommost = socialElements[0];
-          let bottom = bottommost.getBoundingClientRect().bottom;
-
-          socialElements.forEach((node) => {
-            const nodeBottom = node.getBoundingClientRect().bottom;
-            if (nodeBottom > bottom) {
-              bottom = nodeBottom;
-              bottommost = node;
-            }
-          });
-
-          return { bottommost, bottom };
-        };
-
-        const findSocialWrapper = (bottommost) =>
-          bottommost?.closest(
-            '[class*="update-v2-social-activity"], [class*="social-activity"], [class*="social-action"], [data-view-name="feed-social-actions"]'
-          ) || bottommost;
-
-        commentSelectors.forEach((selector) => {
-          card.querySelectorAll(selector).forEach((node) => {
-            node.style.display = 'none';
-          });
-        });
-
-        card.querySelectorAll('textarea, [contenteditable="true"]').forEach((node) => {
+        el.querySelectorAll(commentSelector).forEach((node) => {
           node.style.display = 'none';
         });
 
-        card.querySelectorAll('button, a, span').forEach((node) => {
-          const label = (node.getAttribute('aria-label') || node.textContent || '').toLowerCase();
-          if (/view more comments|load more comments|show more comments|add a comment/.test(label)) {
-            const container = node.closest('[class*="comment"]') || node.parentElement;
-            if (container && card.contains(container)) {
-              container.style.display = 'none';
-            }
-          }
+        el.querySelectorAll('textarea, [contenteditable="true"]').forEach((node) => {
+          node.style.display = 'none';
         });
 
-        const { bottommost, bottom } = findBottommostSocialElement();
-        if (!bottommost || bottom == null) return;
+        const socialElements = [...el.querySelectorAll(socialSelector)].filter((node) => {
+          if (isInComments(node)) return false;
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
 
-        const wrapper = findSocialWrapper(bottommost);
+        if (!socialElements.length) return;
 
-        let current = wrapper;
-        while (current && current !== card) {
-          let sibling = current.nextElementSibling;
-          while (sibling) {
-            sibling.style.display = 'none';
-            sibling = sibling.nextElementSibling;
-          }
-          current = current.parentElement;
-        }
+        const bottom = Math.max(
+          ...socialElements.map((node) => node.getBoundingClientRect().bottom)
+        );
 
-        card.querySelectorAll('*').forEach((node) => {
-          if (wrapper.contains(node) || node === wrapper) return;
-          if (isInComments(node)) {
-            node.style.display = 'none';
-            return;
-          }
-
+        // Drop anything that *starts* below the social bar. Buttons sharing the
+        // bar's row have a smaller top, so the action row survives intact — and
+        // the capture clip stops at `bottom` regardless.
+        el.querySelectorAll('*').forEach((node) => {
           const rect = node.getBoundingClientRect();
           if (rect.height > 0 && rect.top >= bottom - 1) {
             node.style.display = 'none';
           }
         });
       },
-      COMMENT_SELECTORS,
-      SOCIAL_REACTIONS_SELECTORS
+      COMMENT_SELECTOR,
+      SOCIAL_SELECTOR
     );
   }
 
-  async #getPageCaptureMetrics(article) {
-    return article.evaluate(
-      (el, socialSelectors, fixedWidth) => {
-        const cardRect = el.getBoundingClientRect();
-
-        const isInComments = (node) =>
-          !!node.closest(
-            '.comments-comment-box, .comments-comments-list, .comments-comment-item, [class*="comments-comment"], [data-view-name="feed-comment"]'
-          );
-
-        const socialElements = [];
-        socialSelectors.forEach((selector) => {
-          el.querySelectorAll(selector).forEach((node) => {
-            if (isInComments(node)) return;
-            const rect = node.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-              socialElements.push(node);
-            }
-          });
-        });
-
-        let captureBottom = cardRect.bottom;
-        if (socialElements.length > 0) {
-          captureBottom = Math.max(
-            ...socialElements.map((node) => node.getBoundingClientRect().bottom)
-          );
-        }
-
-        const padding = 2;
-
-        return {
-          x: Math.max(0, cardRect.left),
-          y: Math.max(0, cardRect.top),
-          width: fixedWidth,
-          height: Math.max(200, Math.ceil(captureBottom - cardRect.top + padding)),
-        };
-      },
-      SOCIAL_REACTIONS_SELECTORS,
-      FIXED_CAPTURE_WIDTH
-    );
-  }
-
-  async #getElementCaptureClip(article) {
-    const metrics = await this.#getPageCaptureMetrics(article);
-    return {
-      x: 0,
-      y: 0,
-      width: metrics.width,
-      height: metrics.height,
-    };
-  }
-
-  async #normalizeCardWidth(article) {
-    await article.evaluate((el, width) => {
+  async #normalizeCardWidth(card) {
+    await card.evaluate((el, width) => {
       el.style.width = `${width}px`;
       el.style.minWidth = `${width}px`;
       el.style.maxWidth = `${width}px`;
@@ -726,8 +455,8 @@ class PuppeteerScreenshotService {
     }, FIXED_CAPTURE_WIDTH);
   }
 
-  async #triggerLazyMedia(page, article) {
-    const box = await article.boundingBox();
+  async #triggerLazyMedia(page, card) {
+    const box = await card.boundingBox();
     if (!box) return;
 
     const step = 280;
@@ -739,15 +468,10 @@ class PuppeteerScreenshotService {
       }, Math.max(0, box.y + i * step - 80));
       await delay(120);
     }
-
-    await article.evaluate((el) => {
-      el.scrollIntoView({ block: 'start', behavior: 'instant' });
-    });
-    await delay(150);
   }
 
-  async #countPendingMedia(article) {
-    return article.evaluate((el) => {
+  async #countPendingMedia(card) {
+    return card.evaluate((el) => {
       const isVisible = (node) => {
         const rect = node.getBoundingClientRect();
         return rect.width >= 24 && rect.height >= 24;
@@ -756,8 +480,7 @@ class PuppeteerScreenshotService {
       const pendingImages = [...el.querySelectorAll('img')].filter((img) => {
         if (!isVisible(img)) return false;
         if (!img.complete) return true;
-        if (img.naturalWidth < 80 || img.naturalHeight < 40) return true;
-        return false;
+        return img.naturalWidth < 80 || img.naturalHeight < 40;
       }).length;
 
       const pendingVideos = [...el.querySelectorAll('video')].filter((video) => {
@@ -769,12 +492,12 @@ class PuppeteerScreenshotService {
     });
   }
 
-  async #waitForPostMediaLoaded(article) {
+  async #waitForPostMediaLoaded(card) {
     const deadline = Date.now() + MEDIA_LOAD_TIMEOUT_MS;
     let stablePasses = 0;
 
     while (Date.now() < deadline) {
-      const pending = await this.#countPendingMedia(article);
+      const pending = await this.#countPendingMedia(card);
 
       if (pending === 0) {
         stablePasses += 1;
@@ -789,10 +512,46 @@ class PuppeteerScreenshotService {
       await delay(250);
     }
 
-    const remaining = await this.#countPendingMedia(article);
+    const remaining = await this.#countPendingMedia(card);
     if (remaining > 0) {
       logger.warn('Post media still loading at screenshot time', { pending: remaining });
     }
+  }
+
+  /**
+   * Measured with the document scrolled to the origin, so viewport-relative and
+   * document-relative coordinates coincide and the clip is unambiguous.
+   */
+  async #getCaptureMetrics(card) {
+    return card.evaluate(
+      (el, socialSelector, commentSelector, fixedWidth) => {
+        const cardRect = el.getBoundingClientRect();
+
+        const socialBottoms = [...el.querySelectorAll(socialSelector)]
+          .filter((node) => !node.closest(commentSelector))
+          .map((node) => node.getBoundingClientRect())
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+          .map((rect) => rect.bottom);
+
+        const captureBottom = socialBottoms.length
+          ? Math.max(...socialBottoms)
+          : cardRect.bottom;
+
+        const padding = 2;
+        const top = Math.max(0, cardRect.top);
+
+        return {
+          x: Math.max(0, cardRect.left),
+          y: top,
+          width: fixedWidth,
+          height: Math.max(200, Math.ceil(captureBottom - cardRect.top + padding)),
+          bottom: Math.ceil(captureBottom),
+        };
+      },
+      SOCIAL_SELECTOR,
+      COMMENT_SELECTOR,
+      FIXED_CAPTURE_WIDTH
+    );
   }
 
   async #normalizeScreenshotWidth(buffer) {
@@ -802,66 +561,58 @@ class PuppeteerScreenshotService {
       return buffer;
     }
 
-    return sharp(buffer)
-      .resize({ width: OUTPUT_PNG_WIDTH })
-      .png()
-      .toBuffer();
+    return sharp(buffer).resize({ width: OUTPUT_PNG_WIDTH }).png().toBuffer();
   }
 
-  async #screenshotPostCard(page, article) {
-    await page.setViewport({
-      width: VIEWPORT_WIDTH,
-      height: VIEWPORT_HEIGHT_DEFAULT,
-      deviceScaleFactor: DEVICE_SCALE_FACTOR,
-    });
-
+  async #screenshotPostCard(page, card) {
     await this.#dismissOverlays(page);
-    await this.#hidePageChrome(page);
-    await this.#prepareCardForScreenshot(article);
-
-    await article.evaluate((el) => {
-      el.scrollIntoView({ block: 'start', behavior: 'instant' });
-    });
-
-    await this.#normalizeCardWidth(article);
+    await this.#hidePageChrome(page, card);
+    await this.#prepareCardForScreenshot(card);
+    await this.#normalizeCardWidth(card);
     await delay(100);
-    await this.#triggerLazyMedia(page, article);
-    await this.#waitForPostMediaLoaded(article);
 
-    let captureMetrics = await this.#getPageCaptureMetrics(article);
+    await this.#triggerLazyMedia(page, card);
+    await this.#waitForPostMediaLoaded(card);
 
-    const viewportHeight = Math.min(Math.max(captureMetrics.height + 80, 900), 16000);
-    if (viewportHeight > VIEWPORT_HEIGHT_DEFAULT) {
+    const pinToOrigin = () => page.evaluate(() => window.scrollTo(0, 0));
+
+    await pinToOrigin();
+    await delay(80);
+
+    let metrics = await this.#getCaptureMetrics(card);
+
+    // Grow the viewport so the whole card fits inside it — otherwise the clip
+    // would run past the rendered surface and the tail comes back blank.
+    const requiredHeight = Math.min(
+      Math.max(metrics.bottom + 80, VIEWPORT_HEIGHT_DEFAULT),
+      MAX_VIEWPORT_HEIGHT
+    );
+
+    if (requiredHeight > VIEWPORT_HEIGHT_DEFAULT) {
       await page.setViewport({
         width: VIEWPORT_WIDTH,
-        height: viewportHeight,
+        height: requiredHeight,
         deviceScaleFactor: DEVICE_SCALE_FACTOR,
       });
-      await delay(100);
-      await this.#normalizeCardWidth(article);
-      captureMetrics = await this.#getPageCaptureMetrics(article);
+      await delay(120);
+      await this.#normalizeCardWidth(card);
+      await pinToOrigin();
+      await delay(80);
+      metrics = await this.#getCaptureMetrics(card);
     }
 
-    logger.debug('Capturing LinkedIn post page screenshot', captureMetrics);
+    logger.debug('Capturing LinkedIn post card screenshot', metrics);
 
     const screenshot = await page.screenshot({
       type: 'png',
       omitBackground: false,
-      clip: captureMetrics,
+      clip: { x: metrics.x, y: metrics.y, width: metrics.width, height: metrics.height },
     });
 
-    const normalized = await this.#normalizeScreenshotWidth(screenshot);
-    const outputMeta = await sharp(normalized).metadata();
-    logger.debug('Screenshot normalized', {
-      width: outputMeta.width,
-      height: outputMeta.height,
-      targetWidth: OUTPUT_PNG_WIDTH,
-    });
-
-    return normalized;
+    return this.#normalizeScreenshotWidth(screenshot);
   }
 
-  async #loadPostPage(page, targetUrl, urnId) {
+  async #loadPostPage(page, targetUrl) {
     await page.setViewport({
       width: VIEWPORT_WIDTH,
       height: VIEWPORT_HEIGHT_DEFAULT,
@@ -870,7 +621,6 @@ class PuppeteerScreenshotService {
 
     await this.#goto(page, targetUrl);
     await this.#dismissOverlays(page);
-    await this.#waitForPostContent(page, urnId);
   }
 
   async capturePostScreenshot(linkedinUrl) {
@@ -889,40 +639,26 @@ class PuppeteerScreenshotService {
           if (pageIssue) throw new Error(pageIssue);
         }
 
-        for (let index = 0; index < candidates.length; index += 1) {
-          const targetUrl = candidates[index];
-
+        for (const targetUrl of candidates) {
           try {
             logger.debug('Loading LinkedIn post URL', { targetUrl, urnId });
 
-            await this.#loadPostPage(page, targetUrl, urnId);
+            await this.#loadPostPage(page, targetUrl);
 
-            const postCard = await this.#findPostCard(page, urnId);
+            const postCard = await this.#waitForStableCard(page, urnId);
             if (!postCard) {
               const diagnosis = await this.#diagnosePostCardFailure(page, urnId);
               await this.#saveDebugSnapshot(page, 'post-card-not-found.png', 'post card not found');
 
-              let hint = 'Re-connect LinkedIn and retry.';
-              if (diagnosis.onLogin) {
-                hint = 'LinkedIn session expired. Click Connect LinkedIn in the admin UI and log in again.';
-              } else if (diagnosis.viable === 0 && diagnosis.candidateCount === 0) {
-                hint = 'The page loaded but no post content was found. Check the URL is a valid public post link.';
-              } else if (diagnosis.viable === 0) {
-                hint = 'Post elements were found but did not match expected layout. LinkedIn may have changed their page structure.';
-              } else if (urnId && !diagnosis.hasUrnNode && !diagnosis.urnInHtml) {
-                hint = 'Post page loaded but the post ID from the URL was not found in the page. The post may be private or deleted.';
-              }
-
-              lastError = new Error(`LinkedIn post card not found. ${hint}`);
-              logger.warn('Post card not found for URL candidate', {
-                targetUrl,
-                urnId,
-                diagnosis,
-              });
+              lastError = new Error(
+                `LinkedIn post card not found. ${this.#buildFailureHint(diagnosis, urnId)}`
+              );
+              logger.warn('Post card not found for URL candidate', { targetUrl, urnId, diagnosis });
               continue;
             }
 
             const screenshot = await this.#screenshotPostCard(page, postCard);
+            await postCard.dispose();
 
             logger.info('LinkedIn post card screenshot captured', {
               linkedinUrl: targetUrl,
@@ -939,10 +675,7 @@ class PuppeteerScreenshotService {
             return screenshot;
           } catch (error) {
             lastError = error;
-            logger.warn('LinkedIn URL candidate failed', {
-              targetUrl,
-              error: error.message,
-            });
+            logger.warn('LinkedIn URL candidate failed', { targetUrl, error: error.message });
           }
         }
 

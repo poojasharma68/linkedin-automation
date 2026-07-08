@@ -1,6 +1,6 @@
 import { useSelector } from 'react-redux';
 import { useGetAdminMeQuery } from './store/api';
-import Dashboard from './pages/Dashboard';
+import Workspace from './pages/Workspace';
 import LoginPage from './pages/LoginPage';
 import { LoginPageLayout, LoadingMessage } from './pages/LoginPage.styles';
 
@@ -22,7 +22,7 @@ function App() {
     );
   }
 
-  return <Dashboard />;
+  return <Workspace />;
 }
 
 export default App;

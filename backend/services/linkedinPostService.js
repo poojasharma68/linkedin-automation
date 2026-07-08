@@ -1,5 +1,3 @@
-import categoryService from './categoryService.js';
-import { normalizeProgramme, DEFAULT_PROGRAMME, ALL_PROGRAMMES } from '../constants/programmes.js';
 import puppeteerScreenshotService from './puppeteerScreenshotService.js';
 import linksApiService from './linksApiService.js';
 import logger from '../config/logger.js';
@@ -9,8 +7,14 @@ import delay from '../utils/delay.js';
 
 const MAX_URLS_PER_BATCH = 50;
 const PROCESS_HARD_TIMEOUT_MS = env.PUPPETEER_TIMEOUT_MS + 90000;
-// Tags our uploads in the shared links API so we can read back only ours.
+// Tags our uploads in the shared links API so the records stay traceable.
 const POST_SOURCE = 'unionstack';
+
+function toTagList(input) {
+  if (!input) return [];
+  const raw = Array.isArray(input) ? input : String(input).split(',');
+  return raw.map((tag) => String(tag).trim()).filter(Boolean);
+}
 
 class LinkedInPostService {
   parseUrls(input) {
@@ -44,14 +48,13 @@ class LinkedInPostService {
     ]);
   }
 
-  async #processUrl(linkedinUrl, category, programme) {
+  async #processUrl(linkedinUrl, tags) {
     logger.info('Processing LinkedIn post', { linkedinUrl });
 
     try {
       const screenshotBuffer = await this.#captureScreenshotWithTimeout(linkedinUrl);
       const { imageUrl } = await linksApiService.uploadImage(screenshotBuffer, {
-        category,
-        programName: programme,
+        ...tags,
         linkedinUrl,
         source: POST_SOURCE,
       });
@@ -65,14 +68,11 @@ class LinkedInPostService {
     }
   }
 
-  async processUrls({ category, programme, urls }) {
-    if (!category?.trim()) {
-      throw ApiError.badRequest('category is required');
-    }
-
-    const normalizedCategory = categoryService.validateCategorySlug(category.trim().toLowerCase());
-    const normalizedProgramme = normalizeProgramme(programme) || DEFAULT_PROGRAMME;
-
+  // Screenshots each URL once and uploads it to the CDN. Categories and
+  // programmes are free-form labels owned by the admin UI (it keeps them in
+  // localStorage and assembles the JSON output itself) — here they only tag the
+  // CDN record, so anything the user typed is accepted as-is.
+  async processUrls({ urls, categories, programmes }) {
     const urlList = this.parseUrls(urls);
 
     if (urlList.length === 0) {
@@ -88,9 +88,14 @@ class LinkedInPostService {
       throw ApiError.badRequest('Invalid LinkedIn URL(s) found', { invalidUrls });
     }
 
+    const tags = {
+      category: toTagList(categories).join(' ') || undefined,
+      programName: toTagList(programmes).join(', ') || undefined,
+    };
+
     const results = [];
     for (const linkedinUrl of urlList) {
-      results.push(await this.#processUrl(linkedinUrl, normalizedCategory, normalizedProgramme));
+      results.push(await this.#processUrl(linkedinUrl, tags));
     }
 
     const summary = {
@@ -99,34 +104,9 @@ class LinkedInPostService {
       failed: results.filter((result) => result.status === 'Failed').length,
     };
 
-    logger.info('Batch processed', { category: normalizedCategory, ...summary });
+    logger.info('Batch processed', summary);
 
-    return { category: normalizedCategory, programme: normalizedProgramme, summary, results };
-  }
-
-  // Reads our screenshots back from the links API, shaped for the frontend.
-  // Optionally filtered by category slug and/or programme id.
-  async listPosts({ category, programme } = {}) {
-    const links = await linksApiService.listLinks();
-
-    const wantCategory = category && category !== 'all' ? category : null;
-    const wantProgramme =
-      programme && programme !== ALL_PROGRAMMES ? normalizeProgramme(programme) : null;
-
-    return links
-      .filter((link) => link.source === POST_SOURCE && !link.isDeleted)
-      .filter((link) => !wantCategory || link.category === wantCategory)
-      .filter((link) => !wantProgramme || link.programName === wantProgramme)
-      .map((link) => ({
-        id: link._id || link.fileId,
-        fileId: link.fileId,
-        imageUrl: link.url,
-        category: link.category,
-        programme: link.programName,
-        linkedinUrl: link.linkedinUrl,
-        status: 'Completed',
-        createdAt: link.createdAt,
-      }));
+    return { summary, results };
   }
 }
 

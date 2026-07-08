@@ -4,10 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 import cors from 'cors';
-import categoryRoutes from './routes/categoryRoutes.js';
 import linkedinSessionRoutes from './routes/linkedinSessionRoutes.js';
 import processPostsRoutes from './routes/processPostsRoutes.js';
-import linksRoutes from './routes/linksRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import env from './config/env.js';
@@ -45,10 +43,8 @@ if (env.isDevelopment) {
 }
 
 app.use('/api/auth', authRoutes);
-app.use('/api/categories', categoryRoutes);
 app.use('/api/linkedin-session', linkedinSessionRoutes);
 app.use('/api/process', processPostsRoutes);
-app.use('/api/links', linksRoutes);
 
 if (hasClientBuild) {
   app.use(express.static(clientDistPath));

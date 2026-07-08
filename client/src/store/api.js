@@ -12,13 +12,6 @@ const rawBaseQuery = fetchBaseQuery({
   },
 });
 
-function normalizePostsArg(arg) {
-  if (typeof arg === 'string' || arg == null) {
-    return { category: arg, programme: undefined };
-  }
-  return { category: arg.category, programme: arg.programme };
-}
-
 const baseQueryWithAuth = async (args, api, extraOptions) => {
   const result = await rawBaseQuery(args, api, extraOptions);
 
@@ -35,7 +28,7 @@ const baseQueryWithAuth = async (args, api, extraOptions) => {
 export const api = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithAuth,
-  tagTypes: ['Posts', 'Categories', 'LinkedInSession', 'Auth'],
+  tagTypes: ['LinkedInSession', 'Auth'],
   endpoints: (builder) => ({
     login: builder.mutation({
       query: (body) => ({
@@ -62,51 +55,13 @@ export const api = createApi({
       }),
       invalidatesTags: ['LinkedInSession'],
     }),
-    getCategories: builder.query({
-      query: () => '/api/categories',
-      providesTags: ['Categories'],
-    }),
-    createCategory: builder.mutation({
-      query: (body) => ({
-        url: '/api/categories',
-        method: 'POST',
-        body,
-      }),
-      invalidatesTags: ['Categories'],
-    }),
-    updateCategory: builder.mutation({
-      query: ({ id, ...body }) => ({
-        url: `/api/categories/${id}`,
-        method: 'PATCH',
-        body,
-      }),
-      invalidatesTags: ['Categories', 'Posts'],
-    }),
-    deleteCategory: builder.mutation({
-      query: (id) => ({
-        url: `/api/categories/${id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: ['Categories', 'Posts'],
-    }),
-    getAllPosts: builder.query({
-      query: (arg) => {
-        const { category, programme } = normalizePostsArg(arg);
-        const params = new URLSearchParams();
-        if (category && category !== 'all') params.set('category', category);
-        if (programme && programme !== 'all') params.set('programme', programme);
-        const qs = params.toString();
-        return `/api/process/posts${qs ? `?${qs}` : ''}`;
-      },
-      providesTags: ['Posts'],
-    }),
+    // Screenshots each URL and returns its CDN url. Nothing is persisted.
     processPosts: builder.mutation({
       query: (body) => ({
         url: '/api/process',
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['Posts'],
     }),
   }),
 });
@@ -117,11 +72,6 @@ export const {
   useGetHealthQuery,
   useGetLinkedInSessionQuery,
   useStartLinkedInLoginMutation,
-  useGetCategoriesQuery,
-  useCreateCategoryMutation,
-  useUpdateCategoryMutation,
-  useDeleteCategoryMutation,
-  useGetAllPostsQuery,
   useProcessPostsMutation,
 } = api;
 

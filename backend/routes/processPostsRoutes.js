@@ -1,15 +1,13 @@
 import { Router } from 'express';
-import { processPosts, getPosts } from '../controllers/linkedinPostController.js';
+import { processPosts } from '../controllers/linkedinPostController.js';
 import requireAdminAuth from '../middleware/requireAdminAuth.js';
 
 const router = Router();
 
 router.use(requireAdminAuth);
 
-// Capture screenshots for the submitted LinkedIn URLs and store them.
+// Capture a screenshot for each submitted LinkedIn URL and return its CDN url.
+// Nothing is persisted server-side — the admin UI owns the output.
 router.post('/', processPosts);
-
-// Read the stored screenshots back for the frontend.
-router.get('/posts', getPosts);
 
 export default router;
