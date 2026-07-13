@@ -37,9 +37,9 @@ class LinkedInPostService {
     }
   }
 
-  #captureScreenshotWithTimeout(linkedinUrl) {
+  #captureScreenshotWithTimeout(userId, linkedinUrl) {
     return Promise.race([
-      puppeteerScreenshotService.capturePostScreenshot(linkedinUrl),
+      puppeteerScreenshotService.capturePostScreenshot(userId, linkedinUrl),
       delay(PROCESS_HARD_TIMEOUT_MS).then(() => {
         throw new Error(
           'Screenshot capture timed out. Re-connect LinkedIn, then submit the URL again.'
@@ -48,11 +48,11 @@ class LinkedInPostService {
     ]);
   }
 
-  async #processUrl(linkedinUrl, tags) {
-    logger.info('Processing LinkedIn post', { linkedinUrl });
+  async #processUrl(userId, linkedinUrl, tags) {
+    logger.info('Processing LinkedIn post', { userId, linkedinUrl });
 
     try {
-      const screenshotBuffer = await this.#captureScreenshotWithTimeout(linkedinUrl);
+      const screenshotBuffer = await this.#captureScreenshotWithTimeout(userId, linkedinUrl);
       const { imageUrl } = await linksApiService.uploadImage(screenshotBuffer, {
         ...tags,
         linkedinUrl,
@@ -72,7 +72,7 @@ class LinkedInPostService {
   // programmes are free-form labels owned by the admin UI (it keeps them in
   // localStorage and assembles the JSON output itself) — here they only tag the
   // CDN record, so anything the user typed is accepted as-is.
-  async processUrls({ urls, categories, programmes }) {
+  async processUrls({ userId, urls, categories, programmes }) {
     const urlList = this.parseUrls(urls);
 
     if (urlList.length === 0) {
@@ -95,7 +95,7 @@ class LinkedInPostService {
 
     const results = [];
     for (const linkedinUrl of urlList) {
-      results.push(await this.#processUrl(linkedinUrl, tags));
+      results.push(await this.#processUrl(userId, linkedinUrl, tags));
     }
 
     const summary = {

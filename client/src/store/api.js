@@ -48,9 +48,9 @@ export const api = createApi({
       query: () => '/api/linkedin-session/status',
       providesTags: ['LinkedInSession'],
     }),
-    startLinkedInLogin: builder.mutation({
+    disconnectLinkedIn: builder.mutation({
       query: () => ({
-        url: '/api/linkedin-session/login',
+        url: '/api/linkedin-session/disconnect',
         method: 'POST',
       }),
       invalidatesTags: ['LinkedInSession'],
@@ -71,7 +71,7 @@ export const {
   useGetAdminMeQuery,
   useGetHealthQuery,
   useGetLinkedInSessionQuery,
-  useStartLinkedInLoginMutation,
+  useDisconnectLinkedInMutation,
   useProcessPostsMutation,
 } = api;
 

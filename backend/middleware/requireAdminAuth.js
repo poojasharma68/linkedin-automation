@@ -7,9 +7,12 @@ export default function requireAdminAuth(req, _res, next) {
 
   const payload = verifyAdminToken(token);
   if (!payload) {
-    return next(ApiError.unauthorized('Admin login required'));
+    return next(ApiError.unauthorized('Login required'));
   }
 
+  // `username` is the caller's stable user id used for per-user LinkedIn
+  // sessions. `req.admin` is kept for backwards compatibility.
+  req.user = { username: payload.sub };
   req.admin = { username: payload.sub };
   return next();
 }

@@ -623,11 +623,11 @@ class PuppeteerScreenshotService {
     await this.#dismissOverlays(page);
   }
 
-  async capturePostScreenshot(linkedinUrl) {
+  async capturePostScreenshot(userId, linkedinUrl) {
     const { candidates, urnId } = this.#buildCandidateUrls(linkedinUrl);
     const startedAt = Date.now();
 
-    return linkedinBrowserService.withPage(async (page) => {
+    return linkedinBrowserService.withUserPage(userId, async (page) => {
       let lastError = null;
 
       try {

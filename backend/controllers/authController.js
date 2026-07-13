@@ -1,15 +1,7 @@
-import crypto from 'crypto';
-import env from '../config/env.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import ApiError from '../utils/ApiError.js';
 import { createAdminToken, verifyAdminToken } from '../utils/adminToken.js';
-
-function safeEqual(a, b) {
-  const bufA = Buffer.from(String(a));
-  const bufB = Buffer.from(String(b));
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
-}
+import { findUserByCredentials, extensionKeyFor } from '../config/users.js';
 
 export const login = asyncHandler(async (req, res) => {
   const { username, password } = req.body;
@@ -18,21 +10,19 @@ export const login = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Username and password are required');
   }
 
-  const validUser = safeEqual(username.trim(), env.ADMIN_USERNAME);
-  const validPass = safeEqual(password, env.ADMIN_PASSWORD);
-
-  if (!validUser || !validPass) {
+  const user = findUserByCredentials(username, password);
+  if (!user) {
     throw ApiError.unauthorized('Invalid username or password');
   }
 
-  const token = createAdminToken(env.ADMIN_USERNAME);
+  const token = createAdminToken(user.username);
 
   res.status(200).json({
     success: true,
     message: 'Login successful',
     data: {
       token,
-      username: env.ADMIN_USERNAME,
+      username: user.username,
       expiresInHours: 24,
     },
   });
@@ -52,6 +42,9 @@ export const me = asyncHandler(async (req, res) => {
     data: {
       username: payload.sub,
       authenticated: true,
+      // The extension key is deterministic, so it is safe to return here for the
+      // signed-in user to copy into their browser extension.
+      extensionKey: extensionKeyFor(payload.sub),
     },
   });
 });

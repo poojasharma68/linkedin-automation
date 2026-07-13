@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "UnionStack — LinkedIn Connector",
+  "version": "1.0.0",
+  "description": "Securely connect your LinkedIn session to the UnionStack post-automation app. Reads your LinkedIn login cookie from this browser and sends it only to your own server.",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": ["https://*.linkedin.com/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Connect LinkedIn",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}

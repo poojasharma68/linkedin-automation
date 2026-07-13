@@ -18,6 +18,10 @@ data/
 # Build artifacts
 client/dist/
 
+# Packaged extension zip + any unzipped copy (source lives in extension/)
+unionstack-linkedin-connector.zip
+unionstack-linkedin-connector/
+
 # Deploy
 .vercel/
 

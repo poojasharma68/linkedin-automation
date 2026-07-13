@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connect LinkedIn</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --primary: #0a66c2;
+        --primary-dark: #084d92;
+        --border: #d9dde3;
+        --text: #1d2226;
+        --muted: #5e6b78;
+        --error: #b42318;
+        --error-bg: #fef3f2;
+        --success: #067647;
+        --success-bg: #ecfdf3;
+      }
+      * { box-sizing: border-box; }
+      body {
+        width: 320px;
+        margin: 0;
+        padding: 16px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: var(--text);
+        font-size: 13px;
+      }
+      h1 { font-size: 15px; margin: 0 0 2px; }
+      p.sub { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+      label { display: block; font-weight: 600; margin: 10px 0 4px; font-size: 12px; }
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      input:focus { outline: none; border-color: var(--primary); }
+      button {
+        width: 100%;
+        margin-top: 14px;
+        padding: 10px;
+        border: none;
+        border-radius: 6px;
+        background: var(--primary);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: var(--primary-dark); }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .msg {
+        margin-top: 12px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        display: none;
+        white-space: pre-wrap;
+      }
+      .msg.error { display: block; background: var(--error-bg); color: var(--error); }
+      .msg.success { display: block; background: var(--success-bg); color: var(--success); }
+      .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Connect LinkedIn</h1>
+    <p class="sub">Sends your LinkedIn session to your UnionStack app so it can screenshot posts as you.</p>
+
+    <label for="serverUrl">Server URL</label>
+    <input id="serverUrl" type="url" placeholder="https://your-app.up.railway.app" />
+
+    <label for="extensionKey">Your key</label>
+    <input id="extensionKey" type="text" placeholder="Paste the key from the app" />
+    <div class="hint">Find this in the app under “Connect LinkedIn”.</div>
+
+    <button id="connectBtn">Connect LinkedIn</button>
+
+    <div id="message" class="msg"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

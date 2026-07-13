@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import TagManager from '../components/TagManager/TagManager';
 import UrlDropper from '../components/UrlDropper/UrlDropper';
 import OutputPanel from '../components/OutputPanel/OutputPanel';
+import ConnectLinkedIn from '../components/ConnectLinkedIn/ConnectLinkedIn';
 import { useGetHealthQuery, useGetAdminMeQuery } from '../store/api';
 import { logout } from '../store/authSlice';
 import { SecondaryButton } from '../components/ui/styled';
@@ -73,6 +74,8 @@ function Workspace() {
 
       <ContentArea>
         <ContentGrid>
+          <ConnectLinkedIn />
+
           <TagManager
             title="Categories"
             subtitle='Saved in this browser. Click a chip to select it — it becomes the "classes" value.'

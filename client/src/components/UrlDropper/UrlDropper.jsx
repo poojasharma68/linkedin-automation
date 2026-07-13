@@ -1,9 +1,5 @@
 import { useMemo, useState } from 'react';
-import {
-  useProcessPostsMutation,
-  useGetLinkedInSessionQuery,
-  useStartLinkedInLoginMutation,
-} from '../../store/api';
+import { useProcessPostsMutation, useGetLinkedInSessionQuery } from '../../store/api';
 import getApiErrorMessage from '../../utils/getApiError';
 import {
   Card,
@@ -12,7 +8,6 @@ import {
   FormGroup,
   Label,
   PrimaryButton,
-  SecondaryButton,
   Alert,
 } from '../ui/styled';
 import {
@@ -59,26 +54,11 @@ function UrlDropper({ categories, programmes, onResults }) {
     pollingInterval: 15000,
   });
   const [processPosts, { isLoading }] = useProcessPostsMutation();
-  const [startLogin, { isLoading: isConnecting }] = useStartLinkedInLoginMutation();
 
-  const loggedIn = sessionData?.data?.loggedIn === true;
+  const loggedIn = sessionData?.data?.connected === true;
   const urlList = useMemo(() => parseUrls(urls), [urls]);
-  const isReady = urlList.length > 0 && categories.length > 0 && programmes.length > 0;
-
-  const handleConnectLinkedIn = async () => {
-    setMessage({
-      type: 'success',
-      text: 'A Chrome window will open. Log in to LinkedIn — your session will be saved automatically.',
-    });
-
-    try {
-      await startLogin().unwrap();
-      await refetchSession();
-      setMessage({ type: 'success', text: 'LinkedIn connected. You can now capture posts.' });
-    } catch (err) {
-      setMessage({ type: 'error', text: getApiErrorMessage(err, 'LinkedIn login failed') });
-    }
-  };
+  const isReady =
+    urlList.length > 0 && categories.length > 0 && programmes.length > 0 && loggedIn;
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -114,9 +94,10 @@ function UrlDropper({ categories, programmes, onResults }) {
 
     if (!loggedIn) {
       setMessage({
-        type: 'success',
-        text: 'Not logged in yet — a Chrome window will open for LinkedIn login, then capturing will start.',
+        type: 'error',
+        text: 'LinkedIn is not connected. Connect it from the panel above (via the extension) first.',
       });
+      return;
     }
 
     try {
@@ -142,12 +123,8 @@ function UrlDropper({ categories, programmes, onResults }) {
       <SessionRow $loggedIn={loggedIn}>
         <SessionText>
           LinkedIn session: <strong>{loggedIn ? 'Connected' : 'Not connected'}</strong>
+          {!loggedIn && ' — connect it from the panel above'}
         </SessionText>
-        {!loggedIn && (
-          <SecondaryButton type="button" onClick={handleConnectLinkedIn} disabled={isConnecting}>
-            {isConnecting ? 'Waiting for login...' : 'Connect LinkedIn'}
-          </SecondaryButton>
-        )}
       </SessionRow>
 
       {message && <Alert $variant={message.type}>{message.text}</Alert>}
@@ -175,7 +152,7 @@ function UrlDropper({ categories, programmes, onResults }) {
             {programmes.length !== 1 ? 's' : ''}
           </UrlCount>
 
-          <PrimaryButton type="submit" disabled={isLoading || isConnecting || !isReady}>
+          <PrimaryButton type="submit" disabled={isLoading || !isReady}>
             {isLoading ? 'Capturing...' : 'Capture & Build JSON'}
           </PrimaryButton>
         </FooterRow>

@@ -1,56 +1,37 @@
-import fs from 'fs/promises';
-import path from 'path';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import env from '../config/env.js';
 import logger from '../config/logger.js';
-import delay from '../utils/delay.js';
+import sessionStore from './sessionStore.js';
 
 puppeteer.use(StealthPlugin());
 
-const LOGIN_URL = 'https://www.linkedin.com/login';
-const FEED_URL = 'https://www.linkedin.com/feed/';
-const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
-const LOGIN_POLL_MS = 2000;
-
 const BROWSER_IDLE_CLOSE_MS = 2 * 60 * 1000;
 
+/**
+ * Runs headless Chromium and lends out pages that are pre-loaded with a specific
+ * user's LinkedIn cookies.
+ *
+ * There is no server-side login any more: each user connects their own LinkedIn
+ * from the browser extension, which sends their cookies to the /connect
+ * endpoint. Here we just inject those stored cookies into an isolated browser
+ * context per operation, so two users never share a session and nothing is
+ * persisted in the browser profile itself.
+ */
 class LinkedInBrowserService {
   constructor() {
-    this.profileDir = path.resolve(env.LINKEDIN_BROWSER_PROFILE_PATH);
     this.timeout = env.PUPPETEER_TIMEOUT_MS;
     this.browser = null;
-    this.browserHeadless = true;
-    this.loginInProgress = false;
     this.operationQueue = Promise.resolve();
-    this.sessionCache = null;
     this.idleCloseTimer = null;
   }
 
-  #getCachedSession() {
-    if (this.sessionCache && Date.now() - this.sessionCache.checkedAt < 3 * 60 * 1000) {
-      return this.sessionCache;
-    }
-    return null;
-  }
-
-  #setSessionCache(result) {
-    this.sessionCache = { ...result, checkedAt: Date.now() };
-    return this.sessionCache;
-  }
-
-  invalidateSessionCache() {
-    this.sessionCache = null;
-  }
-
+  // Serialize browser work so we never run more than one capture at a time —
+  // keeps memory predictable on small hosts (the reason restarts were happening).
   #enqueue(task) {
     const run = this.operationQueue.then(task, task);
     this.operationQueue = run.catch(() => {});
     return run;
-  }
-
-  async #ensureProfileDir() {
-    await fs.mkdir(this.profileDir, { recursive: true });
   }
 
   #clearIdleCloseTimer() {
@@ -69,7 +50,6 @@ class LinkedInBrowserService {
 
   async closeBrowser() {
     this.#clearIdleCloseTimer();
-
     if (this.browser) {
       await this.browser.close().catch(() => {});
       this.browser = null;
@@ -77,18 +57,15 @@ class LinkedInBrowserService {
     }
   }
 
-  async #getOrLaunchBrowser({ headless, forceNew = false }) {
-    if (!forceNew && this.browser?.isConnected?.() && this.browserHeadless === headless) {
+  async #getOrLaunchBrowser() {
+    if (this.browser?.isConnected?.()) {
       return this.browser;
     }
 
     await this.closeBrowser();
-    await this.#ensureProfileDir();
 
-    this.browserHeadless = headless;
     const launchOptions = {
-      headless,
-      userDataDir: this.profileDir,
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -107,39 +84,18 @@ class LinkedInBrowserService {
     try {
       this.browser = await puppeteer.launch({ ...launchOptions, channel: 'chrome' });
     } catch (chromeChannelError) {
-      logger.debug('System Chrome unavailable, using bundled Chromium', {
+      logger.debug('System Chrome unavailable, using configured Chromium', {
         error: chromeChannelError.message,
       });
       this.browser = await puppeteer.launch(launchOptions);
     }
 
-    logger.info('LinkedIn browser launched', { headless, profileDir: this.profileDir, reused: false });
+    logger.info('LinkedIn browser launched', { headless: true });
     return this.browser;
   }
 
-  async #launchBrowser({ headless }) {
-    return this.#getOrLaunchBrowser({ headless, forceNew: true });
-  }
-
-  async #hasSessionCookie(page) {
-    const cookies = await page.cookies('https://www.linkedin.com');
-    return cookies.some((cookie) => cookie.name === 'li_at' && cookie.value);
-  }
-
-  async #isLoggedInOnPage(page) {
-    const hasCookie = await this.#hasSessionCookie(page);
-    if (!hasCookie) return false;
-
-    const currentUrl = page.url();
-    if (currentUrl.includes('/login') || currentUrl.includes('/uas/login')) {
-      return false;
-    }
-
-    return true;
-  }
-
-  async #openPage(browser) {
-    const page = await browser.newPage();
+  async #openPage(context) {
+    const page = await context.newPage();
     page.setDefaultNavigationTimeout(this.timeout);
     page.setDefaultTimeout(this.timeout);
     await page.setUserAgent(
@@ -148,172 +104,54 @@ class LinkedInBrowserService {
     return page;
   }
 
-  async #checkSessionInternal() {
-    let page = null;
-
-    try {
-      const browser = await this.#launchBrowser({ headless: true });
-      page = await this.#openPage(browser);
-
-      await page.goto(FEED_URL, {
-        waitUntil: 'domcontentloaded',
-        timeout: this.timeout,
-      });
-
-      const loggedIn = await this.#isLoggedInOnPage(page);
-
-      return {
-        loggedIn,
-        profileSaved: true,
-        profilePath: this.profileDir,
-      };
-    } catch (error) {
-      logger.error('LinkedIn session check failed', { error: error.message });
-      return {
-        loggedIn: false,
-        profileSaved: true,
-        profilePath: this.profileDir,
-        error: error.message,
-      };
-    } finally {
-      if (page) await page.close().catch(() => {});
-      await this.closeBrowser();
+  async #applyCookies(page, cookies) {
+    if (cookies.length) {
+      await page.setCookie(...cookies);
     }
   }
 
-  async #openLoginInternal() {
-    if (this.loginInProgress) {
-      return { loggedIn: false, message: 'LinkedIn login is already in progress' };
-    }
-
-    this.loginInProgress = true;
-    let page = null;
-
-    try {
-      const existing = await this.#checkSessionInternal();
-      if (existing.loggedIn) {
-        return {
-          loggedIn: true,
-          message: 'LinkedIn session is already active',
-          profilePath: this.profileDir,
-        };
-      }
-
-      const browser = await this.#launchBrowser({ headless: false });
-      page = await this.#openPage(browser);
-
-      await page.goto(LOGIN_URL, {
-        waitUntil: 'domcontentloaded',
-        timeout: this.timeout,
-      });
-
-      logger.info('LinkedIn login browser opened — waiting for user sign-in');
-
-      const startedAt = Date.now();
-
-      while (Date.now() - startedAt < LOGIN_TIMEOUT_MS) {
-        await delay(LOGIN_POLL_MS);
-
-        if (await this.#isLoggedInOnPage(page)) {
-          await page
-            .goto(FEED_URL, {
-              waitUntil: 'domcontentloaded',
-              timeout: this.timeout,
-            })
-            .catch(() => {});
-
-          logger.info('LinkedIn login completed — browser profile saved');
-
-          this.#setSessionCache({
-            loggedIn: true,
-            profileSaved: true,
-            profilePath: this.profileDir,
-          });
-
-          return {
-            loggedIn: true,
-            message: 'LinkedIn login successful. Browser profile saved.',
-            profilePath: this.profileDir,
-          };
-        }
-      }
-
-      return {
-        loggedIn: false,
-        message: 'LinkedIn login timed out after 5 minutes',
-        profilePath: this.profileDir,
-      };
-    } finally {
-      if (page) await page.close().catch(() => {});
-      await this.closeBrowser();
-      this.loginInProgress = false;
-    }
-  }
-
-  checkSession() {
-    const cached = this.#getCachedSession();
-    if (cached) {
-      return Promise.resolve(cached);
-    }
-
+  /**
+   * Lends a page pre-loaded with `userId`'s LinkedIn cookies to `task`, inside a
+   * throwaway isolated context. Throws a clear error if the user has not
+   * connected LinkedIn yet.
+   */
+  withUserPage(userId, task) {
     return this.#enqueue(async () => {
-      const result = await this.#checkSessionInternal();
-      return this.#setSessionCache(result);
+      const cookies = await sessionStore.getCookies(userId);
+      if (!cookies) {
+        const error = new Error(
+          'LinkedIn is not connected for this account. Open the extension and click Connect LinkedIn.'
+        );
+        error.code = 'LINKEDIN_NOT_CONNECTED';
+        throw error;
+      }
+
+      let context = null;
+      let page = null;
+
+      try {
+        const browser = await this.#getOrLaunchBrowser();
+        context = await browser.createBrowserContext();
+        page = await this.#openPage(context);
+        await this.#applyCookies(page, cookies);
+        return await task(page);
+      } finally {
+        if (page) await page.close().catch(() => {});
+        if (context) await context.close().catch(() => {});
+        this.#scheduleIdleClose();
+      }
     });
   }
 
-  openLogin() {
-    return this.#enqueue(() => this.#openLoginInternal());
-  }
-
-  ensureLoggedIn() {
-    return this.#enqueue(async () => {
-      const cached = this.#getCachedSession();
-      if (cached?.loggedIn) {
-        return { loggedIn: true, message: 'LinkedIn session ready' };
-      }
-
-      const session = await this.#checkSessionInternal();
-      this.#setSessionCache(session);
-
-      if (session.loggedIn) {
-        return { loggedIn: true, message: 'LinkedIn session ready' };
-      }
-
-      return this.#openLoginInternal();
-    });
-  }
-
+  // Pre-warm Chromium so the first capture is fast.
   warmupBrowser() {
     return this.#enqueue(async () => {
       try {
-        await this.#getOrLaunchBrowser({ headless: true });
+        await this.#getOrLaunchBrowser();
         this.#scheduleIdleClose();
         logger.info('LinkedIn browser pre-warmed for fast screenshots');
       } catch (error) {
         logger.debug('LinkedIn browser warmup skipped', { error: error.message });
-      }
-    });
-  }
-
-  withPage(task, { headless = true, reuseBrowser = true } = {}) {
-    return this.#enqueue(async () => {
-      let page = null;
-
-      try {
-        const browser = await this.#getOrLaunchBrowser({
-          headless,
-          forceNew: !reuseBrowser,
-        });
-        page = await this.#openPage(browser);
-        return await task(page);
-      } finally {
-        if (page) await page.close().catch(() => {});
-        if (reuseBrowser) {
-          this.#scheduleIdleClose();
-        } else {
-          await this.closeBrowser();
-        }
       }
     });
   }

@@ -23,6 +23,16 @@ const envSchema = z.object({
   ADMIN_USERNAME: z.string().min(1).default('admin'),
   ADMIN_PASSWORD: z.string().min(1).default('admin123'),
   ADMIN_JWT_SECRET: z.string().min(16).default('dev-admin-jwt-secret-change-me'),
+
+  // Multi-user login. JSON array of { "username", "password" } — one entry per
+  // person. When unset, the single ADMIN_USERNAME/ADMIN_PASSWORD above is the
+  // only user (backwards compatible).
+  APP_USERS: z.string().optional(),
+
+  // Key used to encrypt each user's stored LinkedIn cookies at rest. Falls back
+  // to ADMIN_JWT_SECRET so the app still boots without extra config, but set a
+  // dedicated value in production.
+  SESSION_ENCRYPTION_KEY: z.string().min(16).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
