@@ -29,9 +29,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Client deps (incl. dev deps needed to build) + build
+# Client deps (incl. dev deps needed to build) + build.
+# NODE_ENV=production above makes npm skip devDependencies, but vite lives there
+# and is needed to build — so force it to include dev deps.
 COPY client/package*.json ./client/
-RUN npm --prefix client ci
+RUN npm --prefix client ci --include=dev
 COPY . .
 RUN npm --prefix client run build
 
