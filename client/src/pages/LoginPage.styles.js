@@ -47,3 +47,25 @@ export const LoadingMessage = styled.p`
   color: ${theme.colors.sidebarText};
   font-size: 0.9375rem;
 `;
+
+export const ToggleRow = styled.p`
+  margin-top: 1.25rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: ${theme.colors.textMuted};
+`;
+
+export const ToggleLink = styled.button`
+  background: none;
+  border: none;
+  padding: 0;
+  margin-left: 0.375rem;
+  color: ${theme.colors.primary};
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`;

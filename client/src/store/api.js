@@ -37,6 +37,13 @@ export const api = createApi({
         body,
       }),
     }),
+    signup: builder.mutation({
+      query: (body) => ({
+        url: '/api/auth/signup',
+        method: 'POST',
+        body,
+      }),
+    }),
     getAdminMe: builder.query({
       query: () => '/api/auth/me',
       providesTags: ['Auth'],
@@ -68,6 +75,7 @@ export const api = createApi({
 
 export const {
   useLoginMutation,
+  useSignupMutation,
   useGetAdminMeQuery,
   useGetHealthQuery,
   useGetLinkedInSessionQuery,

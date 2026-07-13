@@ -20,14 +20,11 @@ const envSchema = z.object({
   PUPPETEER_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   LINKEDIN_BROWSER_PROFILE_PATH: z.string().min(1).default('./browser-profile/linkedin'),
 
-  ADMIN_USERNAME: z.string().min(1).default('admin'),
-  ADMIN_PASSWORD: z.string().min(1).default('admin123'),
   ADMIN_JWT_SECRET: z.string().min(16).default('dev-admin-jwt-secret-change-me'),
 
-  // Multi-user login. JSON array of { "username", "password" } — one entry per
-  // person. When unset, the single ADMIN_USERNAME/ADMIN_PASSWORD above is the
-  // only user (backwards compatible).
-  APP_USERS: z.string().optional(),
+  // Shared invite code required to create an account. Set it once; teammates
+  // self-register with it. When unset, sign-up is disabled.
+  SIGNUP_INVITE_CODE: z.string().optional(),
 
   // Key used to encrypt each user's stored LinkedIn cookies at rest. Falls back
   // to ADMIN_JWT_SECRET so the app still boots without extra config, but set a
