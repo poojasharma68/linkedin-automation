@@ -35,7 +35,8 @@ RUN npm --prefix client ci
 COPY . .
 RUN npm --prefix client run build
 
-# Persist the LinkedIn browser profile across deploys (mount a Railway volume here)
-VOLUME ["/app/browser-profile"]
+# Persistence (accounts + LinkedIn sessions) is handled by a Railway Volume
+# mounted at /app/browser-profile — add it in the Railway dashboard. Railway's
+# builder rejects a Docker VOLUME instruction, so it must not be declared here.
 
 CMD ["node", "backend/server.js"]
